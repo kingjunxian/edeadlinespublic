@@ -18,6 +18,8 @@ concurrency:
 
 jobs:
   remind:
+    # Don't run in the shared template itself, only in people's own copies.
+    if: ${{ !github.event.repository.is_template }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
