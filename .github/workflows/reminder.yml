@@ -1,0 +1,57 @@
+name: Deadline reminders
+
+on:
+  schedule:
+    # Times are UTC; Singapore is UTC+8. GitHub can start scheduled runs late,
+    # especially on the hour and around 00:00 UTC, so these sit at :47.
+    - cron: "47 23 * * *" # 07:47 SGT: answer replies, send today's list
+    - cron: "47 0 * * *" # 08:47 SGT: answer replies only
+    - cron: "47 1 * * *" # 09:47 SGT: answer replies; backup list if the 07:47 run was late or skipped
+  workflow_dispatch: # "Run workflow" button: answer replies and always send the list
+
+permissions:
+  contents: write # needed to save state/state.json (done deadlines, last list)
+
+concurrency:
+  group: deadline-reminder
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Answer replies and send reminders
+        run: |
+          case "$SCHEDULE" in
+            "47 0 * * *") python reminder.py --replies-only ;;
+            "") python reminder.py ;;                 # manual run
+            *) python reminder.py --once-per-day ;;   # 07:47 and 09:47 backup
+          esac
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          ICS_URL: ${{ secrets.ICS_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Save bot state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p state
+          git add -A state/
+          if ! git diff --cached --quiet; then
+            git commit -m "Update bot state"
+            git pull --rebase origin main
+            git push
+          fi
